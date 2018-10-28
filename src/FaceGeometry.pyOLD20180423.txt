@@ -1,0 +1,574 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+Created on Wed Apr 18 11:07:50 2018
+
+@author: brh
+"""
+
+class FaceGeometry:
+#==============================================================================
+    def face_geometry(self, el, fa, geo, BC, setting, NX): 
+        '''
+        compute all the face geometry from the element geometry 
+        '''                
+        # HACK - the following functions could be simplified and combined
+        # into a single face interpolation function
+        fa = self.face_topwidth         (el, fa, geo, setting, NX)
+        fa = self.face_wetted_perimeter (el, fa, geo, setting, NX)  
+        fa = self.face_free_surface     (el, fa, geo, BC, setting, NX)
+        fa = self.face_area             (el, fa, geo, BC, setting, NX)
+        
+        if setting.method_froude_interpolation == True:            
+            fa = self.face_hydraulic_jump(el, fa, geo, setting, NX)
+        #endif
+        
+        return fa
+    
+#==============================================================================
+    def face_topwidth(self, el, fa, geo, setting, NX):
+        '''
+        compute face topwidth by interpolation
+        '''       
+        import sys
+        
+        # equal weight interpolation ------------------------------------------
+        if setting.method_topwidth_interpolation == 'equalweight':
+            fa['topwidth'][1:NX] \
+                = 0.5 * (el['topwidth'][0:NX-1] + el['topwidth'][1:NX]) 
+                
+        # upwind interpolation ------------------------------------------------
+        elif setting.method_topwidth_interpolation == 'upwind':
+            # HACK assumes flow direction
+            fa['topwidth'][1:NX] \
+                = el['topwidth'][0:NX-1] 
+            print('error: code needs to be changed for ',                     \
+                  'method_topwidth_interpolatio n= upwind')  
+            sys.exit()
+            
+        # linear interpolation ------------------------------------------------
+        elif setting.method_topwidth_interpolation == 'linear':
+            fa['topwidth'][1:NX] = (                                          \
+                  geo['length'][1:NX]   * el['topwidth'][0:NX-1]              \
+                + geo['length'][0:NX-1] * el['topwidth'][1:NX] )              \
+              / ( geo['length'][1:NX]   + geo['length'][0:NX-1] )
+                           
+        # timescale interpolation ---------------------------------------------
+        elif setting.method_topwidth_interpolation == 'timescale':
+            fa['topwidth'][1:NX] = (                                          \
+                    el['tscale_up'][1:NX]    * el['topwidth'][0:NX-1]         \
+                  + el['tscale_dn'][0:NX-1]  * el['topwidth'][1:NX] )         \
+                / ( el['tscale_dn'][0:NX-1]  + el['tscale_up'][1:NX])
+                
+        else:
+            print('error: unknown value ',                                    \
+                  'setting.method_topwidth_interpolation ',                   \
+                  ' of ',setting.method_topwdith_interpolation)
+            print()
+            sys.exit()            
+        #endif  
+        
+        #----------------------------------------------------------------------   
+        # boundary conditions 
+        fa['topwidth'][0]  = el['topwidth'][0]  
+        fa['topwidth'][NX] = el['topwidth'][NX-1]  
+ 
+        return fa
+    
+#==============================================================================
+    def face_wetted_perimeter(self, el, fa, geo, setting, NX):      
+        '''
+        compute face wetted perimeter by interpolation
+        '''
+        import sys
+        
+        # equal weight interpolation ------------------------------------------
+        if setting.method_perimeter_interpolation == 'equalweight':
+            fa['perimeter'][1:NX] \
+                = 0.5 * (el['perimeter'][0:NX-1] + el['perimeter'][1:NX]) 
+                
+        # upwind interpolation ------------------------------------------------
+        elif setting.method_perimeter_interpolation == 'upwind':
+            # HACK assumes flow direction
+            fa['perimeter'][1:NX] \
+                = el['perimeter'][0:NX-1] 
+            print('error: code needs to be changed for ',                     \
+                  'method_perimeter_interpolation = upwind')  
+            sys.exit()
+                
+        # linear interpolation ------------------------------------------------
+        elif setting.method_perimeter_interpolation == 'linear':
+            fa['perimeter'][1:NX] = (                                         \
+                  geo['length'][1:NX]   * el['perimeter'][0:NX-1]             \
+                + geo['length'][0:NX-1] * el['perimeter'][1:NX] )             \
+              / ( geo['length'][1:NX]   + geo['length'][0:NX-1] )
+                           
+        # timescale interpolation ---------------------------------------------
+        elif setting.method_perimeter_interpolation == 'timescale':
+            fa['perimeter'][1:NX] = (                                         \
+                    el['tscale_up'][1:NX]    * el['perimeter'][0:NX-1]        \
+                  + el['tscale_dn'][0:NX-1]  * el['perimeter'][1:NX] )        \
+                / ( el['tscale_dn'][0:NX-1]  + el['tscale_up'][1:NX])
+        else:
+            print('error: unknown value setting.method_perimeter_',           \
+                  'interpolation of ',setting.method_perimeter_interpolation)
+            print()
+            sys.exit()
+        #endif  
+
+        #----------------------------------------------------------------------   
+        # boundary conditions 
+        fa['perimeter'][0]  = el['perimeter'][0]  
+        fa['perimeter'][NX] = el['perimeter'][NX-1]  
+    
+        return fa
+    
+#==============================================================================
+    def face_free_surface(self, el, fa, geo, BC, setting, NX):
+        '''
+        compute face free surface elevation by interpolation
+        '''
+        import sys
+        
+        # equal weight interpolation ------------------------------------------
+        if setting.method_eta_interpolation == 'equalweight':
+            fa['etaM'][1:NX] \
+                = 0.5 * (el['eta'][0:NX-1] + el['eta'][1:NX])
+                
+        # upwind interpolation ------------------------------------------------
+        elif setting.method_eta_interpolation == 'upwind':
+            # HACK assumes flow direction
+            fa['etaM'][1:NX] = el['eta'][0:NX-1]
+            print('error: code needs to be changed for ',                     \
+                  'method_eta_interpolation = upwind')  
+            sys.exit()
+
+        # linear interpolation ------------------------------------------------
+        elif setting.method_eta_interpolation == 'linear': 
+            fa['etaM'][1:NX] =  (                                             \
+                  geo['length'][1:NX]   * el['eta'][0:NX-1]                   \
+                + geo['length'][0:NX-1] * el['eta'][1:NX] )                   \
+              / ( geo['length'][1:NX]   + geo['length'][0:NX-1] )
+
+        elif setting.method_eta_interpolation == 'timescale':
+            fa['etaM'][1:NX] = (                                              \
+                    el['tscale_up'][1:NX]    * el['eta'][0:NX-1]              \
+                  + el['tscale_dn'][0:NX-1]  * el['eta'][1:NX] )              \
+                / ( el['tscale_dn'][0:NX-1]  + el['tscale_up'][1:NX])
+                
+        else:
+            print('error: unknown value setting.method_eta_interpolation ',   \
+                  ' of ',setting.method_eta_interpolation)
+            print()
+            sys.exit()
+        #endif   
+        
+        #----------------------------------------------------------------------   
+        # boundary conditions 
+        fa['etaM'][0] = el['eta'][0] 
+                        
+        fa['etaM'][NX] = BC.outheight 
+              
+        #----------------------------------------------------------------------   
+        # set a single value of free surface (changed elsewhere)
+        fa['etaP'][:] = fa['etaM'][:]
+        
+        return fa
+    
+#==============================================================================
+    def face_area(self, el, fa, geo, BC, setting, NX):
+        '''
+        compute face area by interpolation
+        '''
+        import sys
+        
+        # equal weight interpolation ------------------------------------------
+        if setting.method_area_interpolation == 'equalweight':
+            fa['areaM'][1:NX] = 0.5 * (el['area'][0:NX-1] + el['area'][1:NX]) 
+                
+        # upwind interpolation ------------------------------------------------
+        elif setting.method_area_interpolation == 'upwind':
+            # HACK assumes flow direction
+            fa['areaM'][1:NX] = el['area'][0:NX-1]
+            print('error: code needs to be changed for ',                     \
+                  'method_area_interpolation = upwind')  
+            sys.exit()
+
+        # linear interpolation ------------------------------------------------
+        elif setting.method_area_interpolation == 'linear':
+            fa['areaM'][1:NX] = (                                             \
+                  geo['length'][1:NX]   * el['area'][0:NX-1]                  \
+                + geo['length'][0:NX-1] * el['area'][1:NX] )                  \
+              / ( geo['length'][1:NX]   + geo['length'][0:NX-1] )
+              
+        # timescale interpolation ---------------------------------------------
+        elif setting.method_area_interpolation == 'timescale':
+            fa['areaM'][1:NX] = (                                             \
+                    el['tscale_up'][1:NX]    * el['area'][0:NX-1]             \
+                  + el['tscale_dn'][0:NX-1]  * el['area'][1:NX] )             \
+                / ( el['tscale_dn'][0:NX-1]  + el['tscale_up'][1:NX])
+                
+        else:
+            print('error: unknown value setting.method_area_interpolation ',  \
+                  ' of ',setting.method_area_interpolation)
+            print()
+            sys.exit()
+        #endif-----------------------------------------------------------------    
+        
+        #----------------------------------------------------------------------   
+        # Boundary conditions
+        fa = self.face_area_BC(el, fa, geo, BC, setting, NX)
+
+        #----------------------------------------------------------------------   
+        # require a single face area at each face (overwritten elsewhere)
+        fa['areaP'][:]  = fa['areaM'][:]
+
+        return fa
+    
+#==============================================================================
+    def face_area_BC(self, el, fa, geo, BC, setting, NX):
+        '''
+        BC on face areas
+        '''
+        import numpy as np
+        import sys
+        
+        #----------------------------------------------------------------------   
+        # boundary conditions 
+        # upstream boundary by extrapolation
+        fa['areaM'][0]  = el['area'][0]
+        
+        # downstream boundary depth
+        depthB = BC.outheight - fa['zbottom'][NX]    
+        if depthB < setting.depth_zero_value:
+            print()
+            print(depthB, BC.outheight, fa['zbottom'][NX],NX)
+            print('error: downstream boundary condition height makes depth ', \
+                  'less than setting.depth_min')
+            sys.exit()
+        #endif
+
+        #----------------------------------------------------------------------   
+        # downstream BC depends on channel type        
+        if geo['etype'][NX-1] == 'rectangular_channel':
+            fa['areaM'][NX] = geo['breadth'][NX-1] * depthB   
+            
+        elif geo['etype'][NX-1] == 'parabolic_channel':
+            fa['areaM'][NX] = (4.0/3.0)*np.sqrt((depthB**3.0)                 \
+                  /geo['parabola_value'][NX-1])  
+            
+        elif geo['etype'][NX-1] == 'trapezoidal_channel':
+            fa['areaM'][NX] = geo['breadth'][NX-1] * depthB \
+                        + (depthB**2.0) / np.tan(geo['trapezoid_angle'][NX-1])   
+                        
+        elif geo['etype'][NX-1] == 'widthdepth_pair':    
+            # aliases for indexes
+            widthAtLayerTop                                                   \
+                = setting.geometry_widthdepth_values['widthAtLayerTop']
+            depthAtLayerTop                                                   \
+                = setting.geometry_widthdepth_values['depthAtLayerTop']
+            areaTotalBelowThisLayer                                           \
+                = setting.geometry_widthdepth_values['areaTotalBelowThisLayer']
+            Dwidth = setting.geometry_widthdepth_values['Dwidth']
+            Ddepth = setting.geometry_widthdepth_values['Ddepth']
+            angle =  setting.geometry_widthdepth_values['angle']
+            
+            # depth sets bracketing each level
+            depthLow = geo['widthdepth'][NX-1,:,depthAtLayerTop] \
+                        - geo['widthdepth'][NX-1,:,Ddepth]
+            
+            depthAbove =  geo['widthdepth'][NX-1,:,depthAtLayerTop]
+            
+            # mask for level containing depth
+            aa = (depthB > depthLow) & (depthB <= depthAbove)
+            
+            # the difference between local depth and the lower widthdepth level
+            deltaD = depthB - depthLow[aa]
+
+            # the area below + the trapezoid at the level
+            fa['areaM'][NX]                                                   \
+                = geo['widthdepth'][NX-1,aa,areaTotalBelowThisLayer]          \
+                + (geo['widthdepth'][NX-1,aa,widthAtLayerTop]                 \
+                   - geo['widthdepth'][NX-1,aa,Dwidth]                        \
+                   )* deltaD                                                  \
+                + (deltaD**2.0) / np.tan(geo['widthdepth'][NX-1,aa,angle])
+        
+            aa[:] = False
+                
+        else:       
+            print('error: unknown value for etype of ',geo['etype'][NX-1])
+            sys.exit()
+        #endif-----------------------------------------------------------------         
+                
+        return fa   
+     
+#==============================================================================
+    def face_hydraulic_jump(self, el, fa, geo, setting, NX):
+        '''
+        compute hydraulic jumps on faces
+        '''
+        import numpy as np
+        import sys
+        
+        fa['jumptype'][:] = 0
+        
+        # HACK this needs to be rewritten for array processing
+        
+        for ii in range(0,NX-1):
+
+            # jump with downstream flow 
+            # note tha face flowrate is not updated yet, so this includes
+            # a time-lagged discrimator the effectively prevents the
+            # system from oscillating with jumps.
+            if (el['froude'][ii  ] > 1.1) and                                 \
+               (el['froude'][ii+1] < 0.9) and                                 \
+               (fa['flowrate'][ii+1] > 0.0)                                   \
+               and                                                            \
+               (el['eta'][ii] < el['eta'][ii+1]):
+                   
+               # baseline simple extrapolation    
+               fa['etaM'][ii+1]  = el['eta'][ii] 
+               fa['etaP'][ii+1]  = el['eta'][ii+1]
+               fa['areaM'][ii+1] = el['area'][ii]
+               fa['areaP'][ii+1] = el['area'][ii+1]
+               
+
+               # using depths on elements
+               depthU  = el['hyddepth'][ii]
+               depthD  = el['hyddepth'][ii+1]
+               froudeU = el['froude'][ii]
+               froudeD = el['froude'][ii+1]
+
+               # use extrapolation for the upstream face of the jump
+               # Note this is NOT no-neighbor compliant
+               if setting.method_hydjump_extrap:
+                   dEU = fa['etaP'][ii] - el['eta'][ii]
+                   dZU = geo['zbottom'][ii] - fa['zbottom'][ii+1]
+                   fa['etaM'][ii+1]  = el['eta'][ii] -  dEU
+                   fa['areaM'][ii+1] = el['area'][ii] - (dEU - dZU) * el['topwidth'][ii]  
+                   
+                   #dED = el['eta'][ii+1]- fa['etaM'][ii+2]
+                   #dZD = fa['zbottom'][ii+1] - geo['zbottom'][ii+1]
+                   #fa['etaP'][ii+1] = el['eta'][ii+1] + dED
+                   #fa['areaP'][ii+1] = el['area'][ii+1] + (dED - dZD) * el['topwidth'][ii+1]
+
+                   depthU  = fa['etaM'][ii+1] - fa['zbottom'][ii+1]    
+                   #depthD  = fa['etaP'][ii+1] - fa['zbottom'][ii+1]                   
+
+                   froudeU = el['flowrate'][ii]  \
+                       /(fa['areaM'][ii+1] * np.sqrt(setting.gravity * depthU))
+                       
+                   #froudeD = el['flowrate'][ii+1]  \
+                   #    /(fa['areaP'][ii+1] * np.sqrt(setting.gravity * depthD))
+
+#               else:
+#               
+#                   if setting.method_hydjump_fsU_extrap:
+#                       dEU = fa['etaP'][ii] - el['eta'][ii]
+#                       dZU = geo['zbottom'][ii] - fa['zbottom'][ii+1]
+#                       fa['etaM'][ii+1]  = el['eta'][ii] -  dEU
+#                       fa['areaM'][ii+1] = el['area'][ii] - (dEU - dZU) * el['topwidth'][ii]  
+#                   #endif
+#                      
+#                   if setting.method_hydjump_fsD_extrap:
+#                       dED = el['eta'][ii+1]- fa['etaM'][ii+2]
+#                       dZD = fa['zbottom'][ii+1] - geo['zbottom'][ii+1]
+#                       fa['etaP'][ii+1] = el['eta'][ii+1] + dED
+#                       fa['areaP'][ii+1] = el['area'][ii+1] + (dED - dZD) * el['topwidth'][ii+1]
+#    
+#                   #endif
+               #endif  
+               
+               # table for effect of slope on hydraulic jump depth
+               # from Brater, King, Lindell and Wei, Handbook of Hydaulics
+               # 7th edition (1996), Figure 8.13, pg 8.43
+               slopetable = np.zeros(7,dtype=np.float64)
+               d2factor   = np.zeros(7,dtype=np.float64)
+               indx   = np.zeros(7,dtype=np.int)
+               slopetable[0]= 0
+               slopetable[1]= 0.05
+               slopetable[2]= 0.1
+               slopetable[3]= 0.15
+               slopetable[4]= 0.2
+               slopetable[5]= 0.25
+               slopetable[6]= 0.3
+               d2factor[0]= 1
+               d2factor[1]= 1.2
+               d2factor[2]= 1.45
+               d2factor[3]= 1.65
+               d2factor[4]= 1.95
+               d2factor[5]= 2.35
+               d2factor[6]= 2.8
+               indx[:] = [0,1,2,3,4,5,6]
+
+                       
+               # approximation of the discontinuity at the jump    
+               if setting.method_hydjump_face == 'experiment':
+                   slope = (fa['zbottom'][ii]- fa['zbottom'][ii+1]) / geo['length'][ii]
+                   depthmultiplier = 1.0
+                   
+#                   if slope < 0:
+#                       print('negative slope')
+#                       sys.exit()
+#                   elif (slope > 0) & (slope <= slopetable[6]):
+#                       aa = (slopetable <= slope)
+#                       uindx = max(indx[aa])
+#                       
+#                       slopedif = slopetable[uindx] - slopetable[uindx - 1]
+#                       factdif  = d2factor[uindx] - d2factor[uindx - 1]
+#                       
+#                       depthmultiplier = d2factor[uindx]                                   \
+#                           - (slopetable[uindx] - slope) * factdif / slopedif
+#                       
+#                       #print(slope)
+#                       #print(slopetable[aa], indx[aa], uindx)
+#                   elif slope > slopetable[6]:
+#                       print('bottoms slope larger than handled')
+#                       sys.exit()
+#                   else: #slope is adverse or 0
+#                       print('not yet handling zero or adverse slopes')
+#                       sys.exit()
+#                   #endif
+                   
+#                   # conjugate depths
+#                   d2 = el['hyddepth'][ii] * 0.5 * (-1                                            \
+#                          + np.sqrt(1.0 + 8.0 *(el['froude'][ii]**2.0)))
+#                   d1 = el['hyddepth'][ii+1] * 0.5 * (-1                                            \
+#                          + np.sqrt(1.0 + 8.0 *(el['froude'][ii+1]**2.0)))
+
+                   #print(d1, d2, el['hyddepth'][ii], el['hyddepth'][ii+1])
+                   #print(el['froude'][ii])
+                   #print(el['froude'][ii]**2.0)
+                   #print()
+                   
+                   # normal flow rate
+                   if slope > 0.0:
+                       if (geo['manningsn'][ii] == 0.0):
+                           Qnorm = 1e12
+                       else:
+                           Qnorm = (1.0 / geo['manningsn'][ii])               \
+                                   * el['area'][ii]                           \
+                                   * el['hydradius'][ii]**(2.0/3.0)           \
+                                   * np.sqrt(slope)
+                       #endif
+                   else:
+                       Qnorm = 0
+                   #endif
+                   
+                   # For supercritical flow in the [ii] cell
+                   # Note that el['flowrate'] < Qnorm implies that we are above
+                   # the normal depth (i.e. decreasing depth is needed to get
+                   # a normal Q that meets Chezy-Manning). Hence for Q < Qnorm
+                   # we are on an S2 curve and expect an immediate jump. In
+                   # contrast, el['flowrate'] > Qnorm implies that increasing
+                   # the depth is needed to match C-M at the observed flow, so
+                   # we are on an S3, M3, C3, H3 or A3 curve.
+                   
+                   if el['flowrate'][ii] <= Qnorm:
+                       #upstream depth is above normal depth    
+                       depthD = depthU * 0.5 * (-1                                            \
+                          + np.sqrt(1.0 + 8.0 *(froudeU**2.0)))
+#                       depthD = depthD * depthmultiplier
+#                       e2 = fa['zbottom'][ii+1] + depthD
+#                       if e2 > el['eta'][ii+1]:
+#                           delta = e2 - el['eta'][ii+1]
+#                           depthD = el['eta'][ii+1] - fa['zbottom'][ii+1] + 0.0*delta
+#                       #endif
+                       fa['areaP'][ii+1] =  depthD * fa['topwidth'][ii+1]                                         
+                       fa['etaP'][ii+1] = fa['zbottom'][ii+1] + depthD
+                      
+                       #print(d2, d2fact, d2*d2fact, el['hyddepth'][ii+1])
+                   else:
+                       sys.exit()
+                   #endif
+                   
+#                   criticaldepth = ( (el['flowrate'][ii]**2.0)    \
+#                       / (setting.gravity * (el['topwidth'][ii]**2.0)) )**(1.0/3.0)
+#                   
+#                   Qcrit = (1.0 / geo['manningsn'][ii])               \
+#                                   * criticaldepth * geo['breadth'][ii]                           \
+#                                   * ( (criticaldepth * geo['breadth'][ii] ) / ( geo['breadth'][ii] + 2.0*criticaldepth))*(2.0/3.0)           \
+#                                   * np.sqrt(slope)
+#                   
+#                   print(Qcrit, Qnorm, el['flowrate'][ii], criticaldepth, el['hyddepth'][ii], el['hyddepth'][ii+1] )
+                   
+#                   sys.exit()
+                   
+               elif setting.method_hydjump_face == 'simple':
+                   # simple extrapolation of element values
+                   # do not change anything from above 
+                  
+                   pass
+                   
+               #elif setting.method_hydjump_face == 'area_downstream_interp':
+               #    # interp for the downstream area
+               #    fa['areaP'][ii+1] = 0.5*(el['area'][ii+1] + el['area'][ii])
+                   
+               elif setting.method_hydjump_face == 'rectangular':    
+                   jumpdepth = depthU \
+                       * 0.5 *(-1.0 + np.sqrt(1.0 + 8.0 * (froudeU**2.0)))
+                   fa['areaP'][ii+1] =  jumpdepth * fa['topwidth'][ii+1]                                         
+                   fa['etaP'][ii+1] = fa['zbottom'][ii+1] + jumpdepth
+                   
+               elif setting.method_hydjump_face == 'froude':
+                   jumpdepth =  depthU *  np.sqrt( \
+                      (el['topwidth'][ii] / el['topwidth'][ii+1]) \
+                     * (1.0 + 2.0 * (froudeU**2.0)) \
+                     / (1.0 + 2.0 * (froudeD**2.0)) )
+                   fa['areaP'][ii+1] =  jumpdepth * fa['topwidth'][ii+1]                                         
+                   fa['etaP'][ii+1] = fa['zbottom'][ii+1] + jumpdepth
+                   
+               elif setting.method_hydjump_face == 'cubic':
+                   # use a cubic solution for the conjugate depths
+                   p1 = 1.0
+                   p2 = 0.0
+                   p3 = - (el['topwidth'][ii] / el['topwidth'][ii+1] ) \
+                        * ( 1.0 + 2.0 * (froudeU**2.0) )
+                   p4 = 2.0 * (el['flowrate'][ii+1]**2.0)    \
+                       / (setting.gravity * (el['topwidth'][ii+1]**2.0) \
+                          * (depthU**3.0) )                       
+                   npout = np.roots([p1, p2, p3, p4]) 
+                   npout = npout.real
+                   aa = npout >= 1.0
+                   jratio = max(npout[aa])
+                   jumpdepth = depthU * jratio
+                   #print(npout[aa], jratio, jumpdepth)
+                   fa['areaP'][ii+1] =  jumpdepth * fa['topwidth'][ii+1]                                         
+                   fa['etaP'][ii+1] = fa['zbottom'][ii+1] + jumpdepth
+               else:
+                   print('error, ',                                           \
+                         'unknown value for setting.method_hydjump_face of ', \
+                         setting.method_hydjump_face)
+                   sys.exit()
+               #endif
+               
+              
+               fa['jumptype'][ii+1] = +1
+                               
+            # jump with upstream flow
+            elif (el['froude'][ii  ] < 0.9) and                               \
+                 (el['froude'][ii+1] > 1.1) and                               \
+                 (fa['flowrate'][ii+1] < 0.0)                                 \
+                 and                                                          \
+                 (el['eta'][ii] > el['eta'][ii+1]):
+
+               fa['etaM'][ii+1]  = el['eta'][ii] 
+               fa['etaP'][ii+1]  = el['eta'][ii+1]
+               fa['areaP'][ii+1] = el['area'][ii+1]
+                                         
+               # approximation of the discontinuity at the jump    
+               if setting.method_hydjump_face == 'flat':
+                   # approximation of the discontinuity at the jump    
+                   fa['areaM'][ii+1] = el['area'][ii]                
+               elif setting.method_hydjump_face == 'area_downstream_interp':
+                   # interp for the downstream area
+                   fa['areaM'][ii+1] = 0.5*(el['area'][ii+1] + el['area'][ii])                
+               #endif                                          
+               fa['jumptype'][ii+1] = -1
+                    
+            #endif
+        #endfor
+          
+        return fa
+#==============================================================================
+#EOF
